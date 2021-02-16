@@ -1,0 +1,153 @@
+---
+title: "Titanic Notebook"
+author: "Tharso Rossiter"
+date: "2/15/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(plyr)
+library(dbplyr)
+library(readr)
+library(partykit)
+library(naniar)
+```
+
+## Data and objective
+
+Survival	:Survival	0 = No, 1 = Yes
+pclass :	Ticket class	1 = 1st, 2 = 2nd, 3 = 3rd
+sex	: Sex	
+Age	: Age in years	
+sibsp	: # of siblings / spouses aboard the Titanic	
+parch	: # of parents / children aboard the Titanic	
+ticket :	Ticket number	
+fare :	Passenger fare	
+cabin :	Cabin number	
+embarked :	Port of Embarkation	C = Cherbourg, Q = Queenstown, S = Southampton
+  
+
+Objecive : predict Survival based on the other variables.
+
+## Importing data
+
+```{r importing data}
+test <- read_csv('test.csv', col_names = TRUE)
+train <- read_csv('train.csv', col_names = TRUE)
+```
+
+We will create an "All" dataset joining both training and test data.
+
+```{r joining datasets}
+test$Survived <- NA
+All <- rbind(train,test)
+```
+
+## Adjusting Data Types
+
+We will check the data types and adjust those according to our necessity.
+
+```{r viweing data types}
+str(All)
+```
+
+* Survived should be a factor
+* Pclass should be a factor
+* Sex should be a factor
+* Cabin should be a factor
+* Embraked should be a factor
+
+```{r factorising variables}
+All$Survived <- as.factor(All$Survived)
+All$Pclass <- as.factor(All$Pclass)
+All$Sex <- as.factor(All$Sex)
+All$Cabin <- as.factor(All$Cabin)
+All$Embarked <- as.factor(All$Embarked)
+```
+
+
+
+## Dealing with missing values
+
+Using naniar package to visualise missing data in our train set:
+
+```{r visualising missing data}
+vis_miss(All[!is.na(All$Survived),])
+```
+
+Age and Cabin are missing values.
+
+We will use a conditional partitioning tree to fit Age variables.
+
+```{r ctree age}
+agefit <- ctree(Age ~ Sex + SibSp + Pclass + Parch + Fare + Embarked,
+                data = All[!is.na(All$Age),])
+All$Age[is.na(All$Age)] <- predict(agefit, All[is.na(All$Age),])
+```
+
+
+## Logistic Regression
+
+Using logistic regression to estimate survival.
+
+```{r logistic regression}
+logfit <- glm(Survived~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+              family = 'binomial',
+              data = All[!is.na(All$Survived),])
+```
+
+## Fitting Values and Creating CSV file
+
+```{r fit and create csv}
+fitted <- predict(logfit,All[is.na(All$Survived),], type = 'response')
+fitted <- ifelse(fitted < .66, 0, 1)
+
+df <- data.frame(PassengerId = All[is.na(All$Survived),]$PassengerId, Survived = fitted)
+write.csv(df, file = 'log_regression_submit_.66', row.names = FALSE)
+```
+
+## Cross-Validation
+
+```{r teste p 1}
+train <- All[!is.na(All$Survived),]
+test <- All[is.na(All$Survived),]
+
+trainsample <- sample(1:nrow(train), size = floor(nrow(train)/10), replace = TRUE)
+train.cvset <- train[trainsample,]
+train.trainset <- train[-trainsample,]
+
+pvector <- seq(0.1,0.9,0.1)
+error.vector <- rep(NA,9)
+
+for(i in 1:length(pvector)){
+  fit <- glm(Survived~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+              family = 'binomial',
+              data = train.trainset)
+  sur.fitted <- predict(logfit,train.cvset, type = 'response')
+  sur.fitted <- ifelse(sur.fitted < pvector[i], 0, 1)
+  
+  error.vector[i] <- sum(sur.fitted != train.cvset$Survived)
+}
+
+plot(error.vector, type = 'l')
+```
+
+```{r teste p 2}
+pvector2 <- seq(0.6,0.8,0.01)
+error.vector2 <- rep(NA,9)
+
+for(i in 1:length(pvector)){
+  fit <- glm(Survived~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+              family = 'binomial',
+              data = train.trainset)
+  sur.fitted <- predict(logfit,train.cvset, type = 'response')
+  sur.fitted <- ifelse(sur.fitted < pvector[i], 0, 1)
+  
+  error.vector2[i] <- sum(sur.fitted != train.cvset$Survived)
+}
+
+plot(error.vector2, type = 'l')
+```
+
